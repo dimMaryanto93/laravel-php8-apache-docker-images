@@ -1,0 +1,44 @@
+stages:
+  - build
+  - publish
+
+variables:
+    APP_NAME: "${CI_PROJECT_NAME}"
+    PRIVATE_REGISTRY_PUSH: "repository.dimas-maryanto.com:8087"
+    PRIVATE_REGISTRY_PULL: "repository.dimas-maryanto.com:8086"
+    IMAGE_NAME: "${PRIVATE_REGISTRY_PUSH}/${CI_PROJECT_NAMESPACE}/${CI_PROJECT_NAME}:$CI_COMMIT_TAG"
+
+# Select what we should cache between builds
+cache:
+  paths:
+    - vendor/
+    - node_modules/
+
+publish-image:
+    stage: publish
+    image: ${PRIVATE_REGISTRY_PULL}/docker:stable
+    services:
+        - name: ${PRIVATE_REGISTRY_PULL}/docker:18.09-dind
+          # Enabled insecure registry into docker inside docker
+          entrypoint: ["dockerd-entrypoint.sh"]
+          # TODO variable `--insecure-registry` cant be inject as variable
+          command: [
+            "--insecure-registry=repository.dimas-maryanto.com:8087",
+            "--insecure-registry=repository.dimas-maryanto.com:8086"
+          ]
+          alias: dockerd
+    variables:
+        # modified file /etc/hosts inside docker container
+        DOCKER_HOST: tcp://dockerd:2375
+        DOCKER_DRIVER: overlay2
+    before_script:
+        - cat ${PRIVATE_REGISTRY_PASSWORD} | docker login --username ${PRIVATE_REGISTRY_USERNAME} --password-stdin ${PRIVATE_REGISTRY_PUSH}
+        - cat ${PRIVATE_REGISTRY_PASSWORD} | docker login --username ${PRIVATE_REGISTRY_USERNAME} --password-stdin ${PRIVATE_REGISTRY_PULL}
+    script:
+        - docker build -t ${IMAGE_NAME} -f Dockerfile .
+    after_script:
+        - docker image push ${IMAGE_NAME}
+    tags:
+        - docker
+    only:
+        - /-release$/
